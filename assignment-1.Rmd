@@ -36,11 +36,41 @@ UA_46	Lvivska	1
 UA_61	Ternopilska	1
 UA_77	Chernivetska	1
 
+
+```{r map}
+#library(maps)
+library(rgdal)
+library(maptools)
+#library(sf)
+#library(terra)
+
+download.file("https://geodata.ucdavis.edu/gadm/gadm4.1/shp/gadm41_UKR_shp.zip" , destfile="data/ukraine_map.zip")
+system("unzip data/ukraine_map.zip")
+
+map_1 <- readOGR( 
+  dsn= paste0(getwd()) , 
+  layer="gadm41_UKR_1",
+  verbose=FALSE, stringsAsFactors = FALSE)
+
+plot(map_1)
+
+str(map_1, max.level = 2)
+str(map_1@data)
+map_1@data$NAME_1
+
+map_1@data  <- map_1@data %>%
+  mutate(color = ifelse(NAME_1 %in% c("Zakarpattia","Ivano-Frankivs'k","L'viv","Ternopil'","Chernivtsi"), "red", "white"))
+
+plot(map_1, col = map_1@data$color)
+
+
+```
+
 Merge these datasets together using year and region. Use left_join to merge different datasets. As for data_month_NL.csv, which contains the monthly information, you can either generate annual variables from the monthly information or try to pivot the datasets to create 12 new variables for each variable you think useful (e.g. NLI_01 for January, NLI_02 for February, NLI_03 for March, etc.).
 
 ```{r prep-data}
 
-# annualize 
+## code from class
 
 data_tidy_YR_test <- data_month |> group_by(year, reg, name) |> 
   mutate(NLI = nl_sum_4/(area_sq_km - 0.141*nl_nodata_4),
@@ -111,16 +141,50 @@ ggplot(filter(data_tidy_YR, year <=2021), aes(x=year, y=nl_mean_4))+
   geom_smooth(method = "lm") + facet_wrap(~name, scales = 'free_y') + 
   ylab("Average Luminosity") +
   geom_rect(data = subset(data_tidy_YR, name %in% c("Zakarpatska","Ivano-Frankivska","Lvivska","Ternopilska","Chernivetska")), 
-                          fill = NA, colour = "red", xmin = -Inf,xmax = Inf,
-            ymin = -Inf,ymax = Inf)
+                          fill = NA, colour = "red", size = 2, xmin = -Inf,xmax = Inf,
+            ymin = -Inf,ymax = Inf) + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
 
 ggplot(filter(data_tidy_YR, year <=2021, name %in% c("Zakarpatska","Ivano-Frankivska","Lvivska","Ternopilska","Chernivetska")), aes(x=year, y=nl_mean_4))+
   geom_smooth(method = "lm", aes(color=name), show.legend = FALSE) + facet_wrap(~name, scales = 'free_y') + 
   ylab("Average Luminosity") + 
-  geom_point(aes(color=name), show.legend = FALSE)
+  geom_point(aes(color=name), show.legend = FALSE) + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(title = "Mean Night Light Luminosity", subtitle = "Western Ukraine")
 
-## what would the title be? 
+## what would the title be? what is nl_mean_4? 
 ```
+
+```{r line-charts-2}
+data_tidy_YR <- data_tidy_YR %>%
+  mutate(of_interest = ifelse(name %in% c("Zakarpatska","Ivano-Frankivska","Lvivska","Ternopilska","Chernivetska"), TRUE, FALSE))
+
+ggplot(filter(data_tidy_YR, year <=2020), aes(x=log(nl_mean_4), y=lng))+
+  geom_point(aes(color=of_interest)) + geom_smooth(method="lm")
+
+# lower ratio of luminosity to lng in these Western regions
+
+ggplot(data = filter(data_tidy_YR, year <=2020), aes(x=log(nl_mean_4), y=lng))+
+  geom_point(aes(color=of_interest)) + geom_smooth(method="lm", color = "black") +
+  geom_smooth(data = filter(data_tidy_YR, year <=2020, of_interest == TRUE), aes(x=log(nl_mean_4), y=lng), method="lm", color = "blue")
+
+
+
+ggplot(filter(data_tidy_YR, year <=2020, name %in% c("Zakarpatska","Ivano-Frankivska","Lvivska","Ternopilska","Chernivetska")), aes(x=log(nl_mean_4), y=lng))+
+  geom_point() + geom_smooth(method="lm") + 
+  geom_text(aes(label = name, color=name), check_overlap = TRUE)+
+  theme(legend.position="none")
+```
+
+
+```{r line-graphs-3}
+ggplot(data = filter(data_tidy_YR, year <=2020), aes(x=log(nl_mean_4), y=lng))+
+  geom_point(aes(color=of_interest)) + geom_smooth(method="lm", color = "black", se=FALSE) +
+  geom_smooth(data = filter(data_tidy_YR, year <=2020, of_interest == TRUE), aes(x=log(nl_mean_4), y=lng), method="lm", color = "blue", se=FALSE)+
+  facet_wrap(~year, scales = 'free')
+```
+
+
 
 
 bar charts (geom_bar)
@@ -128,19 +192,7 @@ bar charts (geom_bar)
 ```{r}
 
 
-# Coding question:
-# How do we produce a series of graphs over time?
-# How do we add simply OLS line to check the relationship between NL and GDP?
-# Check us of geom_smooth(method="lm"). What other methods are available? How about Loess
-# Scatter plots lights vs. GDP
-ggplot(filter(data_tidy_YR, year <=2020), aes(x=log(nl_mean_4), y=lng))+
-  geom_point() + geom_smooth(method="lm")+
-  facet_wrap(~year, scales = 'free')
 
-ggplot(filter(data_tidy_YR, year <=2020), aes(x=log(nl_mean_4), y=lng))+
-  geom_point() + geom_smooth(method="lm")+ 
-  geom_text(aes(label = name, color=name), check_overlap = TRUE)+
-  theme(legend.position="none")
 
 
 
@@ -175,33 +227,4 @@ Try to go through the model selection methods (Best Subset Selection - regsubset
 ```
 
 
-
-```{r map}
-#library(maps)
-library(rgdal)
-library(maptools)
-#library(sf)
-#library(terra)
-
-download.file("https://geodata.ucdavis.edu/gadm/gadm4.1/shp/gadm41_UKR_shp.zip" , destfile="data/ukraine_map.zip")
-system("unzip data/ukraine_map.zip")
-
-map_1 <- readOGR( 
-  dsn= paste0(getwd()) , 
-  layer="gadm41_UKR_1",
-  verbose=FALSE, stringsAsFactors = FALSE)
-
-plot(map_1)
-
-str(map_1, max.level = 2)
-str(map_1@data)
-map_1@data$NAME_1
-
-map_1@data  <- map_1@data %>%
-  mutate(color = ifelse(NAME_1 %in% c("Zakarpattia","Ivano-Frankivs'k","L'viv","Ternopil'","Chernivtsi"), "red", "white"))
-
-plot(map_1, col = map_1@data$color)
-
-
-```
 
