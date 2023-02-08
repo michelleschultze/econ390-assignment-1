@@ -334,7 +334,7 @@ ridge.mod$lambda[60]
 coef(ridge.mod)[, 60]
 sqrt(sum(coef(ridge.mod)[-1, 60]^2))
 ###
-predict(ridge.mod, s = 50, type = "coefficients")[1:20, ]
+summary(predict(ridge.mod, s = 50, type = "coefficients")[1:20, ])
 ###
 set.seed(1)
 train <- sample(1:nrow(x), nrow(x) / 2)
