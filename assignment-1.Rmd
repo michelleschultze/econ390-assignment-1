@@ -220,6 +220,64 @@ Use these datasets to fit fixed effect line models. Use plm function to run the 
 
 ```{r}
 
+library(plm)
+library(AER)
+library(stargazer)
+
+
+########## GDP and Nightlights Panel Models #####
+# filtering oblasts with available GDP over entire period
+panel_data <- filter(data_tidy_YR, !(reg %in% c("UA_40", "UA_43")))
+
+
+### Unit FE Model
+NL_fe_mod <- plm(lng ~ NLI,
+                 data = panel_data,
+                 index = c("name", "year"),
+                 model = "within")
+summary(NL_fe_mod)
+coeftest(NL_fe_mod, vcov = vcovHC, type = "HC1")
+
+
+# Unit FE == OLS with dummies for Units
+NL_lm_mod <- lm(lng ~ NLI + name - 1, data = panel_data)
+summary(NL_lm_mod)
+
+
+### Time and Unit FE
+NL_tefe_mod <- plm(lng ~ NLI,
+                   data = panel_data,
+                   index = c("name", "year"),
+                   model = "within",
+                   effect = "twoways")
+summary(NL_tefe_mod)
+coeftest(NL_tefe_mod, vcov = vcovHC, type = "HC1")
+
+# Time and Unit FE == OLS with dummies for Units and Years
+NL_TU_lm_mod <- lm(lng ~ NLI + name + as.factor(year) - 1, data = panel_data)
+summary(NL_TU_lm_mod)
+
+
+# Arranging results for presentation
+model_se <- list(sqrt(diag(vcovHC(NL_fe_mod, type = "HC1"))),
+                 sqrt(diag(vcovHC(NL_lm_mod, type = "HC1"))),
+                 sqrt(diag(vcovHC(NL_tefe_mod, type = "HC1"))),
+                 sqrt(diag(vcovHC(NL_TU_lm_mod, type = "HC1"))))
+
+# output latex table (type = "html" for HTML/CSS code)
+stargazer(NL_fe_mod, NL_lm_mod, NL_tefe_mod, NL_TU_lm_mod,
+          digits = 3,
+          header = FALSE,
+          type = "html",
+          se = model_se,
+          title = "Linear Panel Regression Models of GDP and Nightlights",
+          model.numbers = FALSE,
+          column.labels = c("(1)", "(2)", "(3)", "(4)"),
+          out = "table.htm")
+
+## how to make table come out fully formatted?
+
+
 ```
 
 
