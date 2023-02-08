@@ -1,0 +1,81 @@
+---
+title: "Econ 390: Team Assignment #1 (solo try)"
+author: Michelle Schultze
+output: pdf_document
+date: "2023-02-07"
+---
+
+Load packages & import data
+
+```{r}
+
+```
+
+Each team should mainly focus on their regions, but comparing with the country level (sum/average) is welcomed. 
+
+UA_21	Zakarpatska	1
+UA_26	Ivano-Frankivska	1
+UA_46	Lvivska	1
+UA_61	Ternopilska	1
+UA_77	Chernivetska	1
+
+Merge these datasets together using year and region. Use left_join to merge different datasets. 
+
+```{r}
+
+```
+
+As for data_month_NL.csv, which contains the monthly information, you can either generate annual variables from the monthly information or try to pivot the datasets to create 12 new variables for each variable you think useful (e.g. NLI_01 for January, NLI_02 for February, NLI_03 for March, etc.).
+
+```{r}
+
+```
+
+
+Use pivot_wider() to pivot the datasets.
+
+```{r}
+
+```
+
+Use these datasets to create some line charts (geom_line)
+
+```{r}
+
+```
+
+
+bar charts (geom_bar)
+
+```{r}
+
+```
+
+
+pie charts (geom_bar + coord_polar())
+
+```{r}
+
+```
+
+
+boxplots (geom_boxplot)
+
+```{r}
+
+```
+
+
+Use these datasets to fit fixed effect line models. Use plm function to run the fixed effect regression.
+
+```{r}
+
+```
+
+
+Try to go through the model selection methods (Best Subset Selection - regsubsets, Ridge – glmnet alpha = 1, LASSO – glmnet alpha = 0) to find the best prediction model for GDP. Start with as many variables as you can get.
+
+```{r}
+
+```
+
