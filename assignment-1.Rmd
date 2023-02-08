@@ -174,3 +174,34 @@ Try to go through the model selection methods (Best Subset Selection - regsubset
 
 ```
 
+
+
+```{r map}
+#library(maps)
+library(rgdal)
+library(maptools)
+#library(sf)
+#library(terra)
+
+download.file("https://geodata.ucdavis.edu/gadm/gadm4.1/shp/gadm41_UKR_shp.zip" , destfile="data/ukraine_map.zip")
+system("unzip data/ukraine_map.zip")
+
+map_1 <- readOGR( 
+  dsn= paste0(getwd()) , 
+  layer="gadm41_UKR_1",
+  verbose=FALSE, stringsAsFactors = FALSE)
+
+plot(map_1)
+
+str(map_1, max.level = 2)
+str(map_1@data)
+map_1@data$NAME_1
+
+map_1@data  <- map_1@data %>%
+  mutate(color = ifelse(NAME_1 %in% c("Zakarpattia","Ivano-Frankivs'k","L'viv","Ternopil'","Chernivtsi"), "red", "white"))
+
+plot(map_1, col = map_1@data$color)
+
+
+```
+
