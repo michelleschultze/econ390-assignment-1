@@ -141,7 +141,7 @@ ggplot(filter(data_tidy_YR, year <=2021), aes(x=year, y=nl_mean_4))+
   geom_smooth(method = "lm") + facet_wrap(~name, scales = 'free_y') + 
   ylab("Average Luminosity") +
   geom_rect(data = subset(data_tidy_YR, name %in% c("Zakarpatska","Ivano-Frankivska","Lvivska","Ternopilska","Chernivetska")), 
-                          fill = NA, colour = "red", size = 2, xmin = -Inf,xmax = Inf,
+                          fill = NA, colour = "red", linewidth = 2, xmin = -Inf,xmax = Inf,
             ymin = -Inf,ymax = Inf) + 
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
 
@@ -155,6 +155,8 @@ ggplot(filter(data_tidy_YR, year <=2021, name %in% c("Zakarpatska","Ivano-Franki
 ## what would the title be? what is nl_mean_4? 
 ```
 
+
+
 ```{r line-charts-2}
 data_tidy_YR <- data_tidy_YR %>%
   mutate(of_interest = ifelse(name %in% c("Zakarpatska","Ivano-Frankivska","Lvivska","Ternopilska","Chernivetska"), TRUE, FALSE))
@@ -162,13 +164,14 @@ data_tidy_YR <- data_tidy_YR %>%
 ggplot(filter(data_tidy_YR, year <=2020), aes(x=log(nl_mean_4), y=lng))+
   geom_point(aes(color = of_interest)) + geom_smooth(method="lm")
 
-# lower ratio of luminosity to lng in these Western regions
+# lower ratio of (log) luminosity to (log) GDP in Western Ukraine
 
 ggplot(data = filter(data_tidy_YR, year <=2020), aes(x=log(nl_mean_4), y=lng))+
   geom_point(aes(color=of_interest)) + geom_smooth(method="lm", color = "black") +
   geom_smooth(data = filter(data_tidy_YR, year <=2020, of_interest == TRUE), aes(x=log(nl_mean_4), y=lng), method="lm", color = "blue")
 
 
+# Western regions relative to each other: 
 
 ggplot(filter(data_tidy_YR, year <=2020, name %in% c("Zakarpatska","Ivano-Frankivska","Lvivska","Ternopilska","Chernivetska")), aes(x=log(nl_mean_4), y=lng))+
   geom_point() + geom_smooth(method="lm") + 
@@ -222,9 +225,126 @@ Use these datasets to fit fixed effect line models. Use plm function to run the 
 
 Try to go through the model selection methods (Best Subset Selection - regsubsets, Ridge – glmnet alpha = 1, LASSO – glmnet alpha = 0) to find the best prediction model for GDP. Start with as many variables as you can get.
 
-```{r}
+```{r linear}
+
+## class code
+
+
+
+## couldn't figure out how to make regfit.full work, error: "Exhaustive search will be S L O W, must specify really.big=T"
+
+###
+library(ISLR2)
+dim(data_tidy_YR)
+sum(is.na(data_tidy_YR$lng))
+sum(is.na(data_tidy_YR$nl_mean_4))
+###
+data_tidy_YR_2 <- na.omit(data_tidy_YR)
+dim(data_tidy_YR_2)
+sum(is.na(data_tidy_YR_2))
+###
+library(leaps)
+regfit.full <- regsubsets(nl_mean_4 ~ ., data_tidy_YR_2, nvmax = 5)
+summary(regfit.full)
+
+
+
 
 ```
 
+```{r}
+## Ridge Regression and the Lasso
+
+###
+x <- model.matrix(nl_mean_4 ~ ., data_tidy_YR_2)[, -1]
+y <- data_tidy_YR_2$nl_mean_4
+
+### Ridge Regression
+
+###
+library(glmnet)
+grid <- 10^seq(10, -2, length = 100)
+ridge.mod <- glmnet(x, y, alpha = 0, lambda = grid)
+###
+dim(coef(ridge.mod))
+###
+ridge.mod$lambda[50]
+coef(ridge.mod)[, 50]
+sqrt(sum(coef(ridge.mod)[-1, 50]^2))
+###
+ridge.mod$lambda[60]
+coef(ridge.mod)[, 60]
+sqrt(sum(coef(ridge.mod)[-1, 60]^2))
+###
+predict(ridge.mod, s = 50, type = "coefficients")[1:20, ]
+###
+set.seed(1)
+train <- sample(1:nrow(x), nrow(x) / 2)
+test <- (-train)
+y.test <- y[test]
+###
+ridge.mod <- glmnet(x[train, ], y[train], alpha = 0,
+                    lambda = grid, thresh = 1e-12)
+ridge.pred <- predict(ridge.mod, s = 4, newx = x[test, ])
+mean((ridge.pred - y.test)^2)
+###
+mean((mean(y[train]) - y.test)^2)
+###
+ridge.pred <- predict(ridge.mod, s = 1e10, newx = x[test, ])
+mean((ridge.pred - y.test)^2)
+###
+ridge.pred <- predict(ridge.mod, s = 0, newx = x[test, ],
+                      exact = T, x = x[train, ], y = y[train])
+mean((ridge.pred - y.test)^2)
+lm(y ~ x, subset = train)
+predict(ridge.mod, s = 0, exact = T, type = "coefficients",
+        x = x[train, ], y = y[train])[1:20, ]
+###
+set.seed(1)
+cv.out <- cv.glmnet(x[train, ], y[train], alpha = 0)
+plot(cv.out)
+bestlam <- cv.out$lambda.min
+bestlam
+###
+ridge.pred <- predict(ridge.mod, s = bestlam,
+                      newx = x[test, ])
+mean((ridge.pred - y.test)^2)
+###
+out <- glmnet(x, y, alpha = 0)
+predict(out, type = "coefficients", s = bestlam)[1:20, ]
+
+
+## what are these numbers describing, what would be useful to look at here? 
+## should we highlight and discuss the coefficients for our regions of interest? 
+
+
+
+
+### The Lasso
+
+###
+lasso.mod <- glmnet(x[train, ], y[train], alpha = 1,
+                    lambda = grid)
+plot(lasso.mod)
+###
+set.seed(1)
+cv.out <- cv.glmnet(x[train, ], y[train], alpha = 1)
+plot(cv.out)
+bestlam <- cv.out$lambda.min
+lasso.pred <- predict(lasso.mod, s = bestlam,
+                      newx = x[test, ])
+mean((lasso.pred - y.test)^2)
+###
+out <- glmnet(x, y, alpha = 1, lambda = grid)
+lasso.coef <- predict(out, type = "coefficients",
+                      s = bestlam)[1:20, ]
+lasso.coef
+lasso.coef[lasso.coef != 0]
+
+
+
+## same questions here
+
+```
 
 
