@@ -7,11 +7,28 @@ date: "2023-02-07"
 
 Load packages & import data
 
-```{r}
+```{r load-import}
+library(tidyverse)
+library(broom)
+library(tidymodels)
+library(ggplot2)
+library(pls)
+library(haven)
+
+data_month <- read_csv("/Users/michelle/econ390/econ390-assignment-1/data/data_month_NL.csv")
+# data_month$month <- paste('0', data_month$month, sep="")
+data_month$Date <- paste(data_month$year,data_month$month,"01", sep="-")
+data_month$Date <- as.Date(data_month$Date, format = "%Y-%m-%d")
+
+
+regGDP <- read_dta("data/Region by year GDP panel.dta")
+regGDP[regGDP$year == 2021, 3] <- NA 
 
 ```
 
 Each team should mainly focus on their regions, but comparing with the country level (sum/average) is welcomed. 
+
+Assigned regions:
 
 UA_21	Zakarpatska	1
 UA_26	Ivano-Frankivska	1
@@ -19,35 +36,113 @@ UA_46	Lvivska	1
 UA_61	Ternopilska	1
 UA_77	Chernivetska	1
 
-Merge these datasets together using year and region. Use left_join to merge different datasets. 
+Merge these datasets together using year and region. Use left_join to merge different datasets. As for data_month_NL.csv, which contains the monthly information, you can either generate annual variables from the monthly information or try to pivot the datasets to create 12 new variables for each variable you think useful (e.g. NLI_01 for January, NLI_02 for February, NLI_03 for March, etc.).
 
-```{r}
+```{r prep-data}
+
+# annualize 
+
+data_tidy_YR_test <- data_month |> group_by(year, reg, name) |> 
+  mutate(NLI = nl_sum_4/(area_sq_km - 0.141*nl_nodata_4),
+         NLI2 = nl_mean_4/nl_std_4)
+
+data_tidy_YR_test <- filter(data_tidy_YR_test, year >= 2012, !(reg %in% c("UA_09_O", "UA_14_O")) ) 
+
+# remove LNR/DNR {careful with character string "UA_09_0" vs. "UA_14_O"} 
+# original data_month starts in 2010 (with many missing variables)
+data_tidy_YR_test <- filter(data_tidy_YR_test, year >= 2012, !(reg %in% c("UA_09_O", "UA_14_O")) ) 
+
+# arrange order of columns for easier viewing
+data_tidy_YR_test <- data_tidy_YR_test |> 
+  select(c(year, month, reg, name, area_sq_km, NLI, NLI2, tw_count), everything())
+
+
+# Coding Question:
+# How do we compute logs of a select range of columns?
+test <- data_tidy_YR_test
+test$logNLI <- log(test$NLI)
+# What happens when we take log of negative values or zero? Are the outputs the same?
+# Check for -Inf and NaN
+# How do we identify this?
+# check is.na() function and is.infinite() function
+# What do we do about that once identified?
+# sum(is.na(test$logNLI))
+# sum(is.infinite(test$logNLI))
+# which(is.na(test$logNLI))
+# which(is.infinite(test$logNLI))
+
+data_tidy_YR_test <- data_tidy_YR_test |> 
+  mutate(across(c(NLI:tw_n_settlements), ~log(.x), .names = '{.col}'))
+
+data_tidy_YR_test[data_tidy_YR_test == -Inf] <- 0
+
+# Estimation Portion 2012-2020 (2021 we have monthly levels)
+data_tidy_YR <- filter(data_tidy_YR_test, year < 2021) |>
+  group_by(year, reg, name) |>
+  summarise(across(c(NLI:tw_n_settlements), ~mean(.x, na.rm=TRUE), .names = '{.col}')) |>
+  mutate(across(c(NLI:tw_n_settlements), ~round(.x, digits=3), .names = '{.col}'))
+
+# Add yearly levels of GDP
+data_tidy_YR <- left_join(data_tidy_YR, regGDP, by=c("year", "reg"))
+
+
+data_tidy_YR$GDP <- log(data_tidy_YR$GDP)
+colnames(data_tidy_YR)[25] <- "lng"
+
 
 ```
-
-As for data_month_NL.csv, which contains the monthly information, you can either generate annual variables from the monthly information or try to pivot the datasets to create 12 new variables for each variable you think useful (e.g. NLI_01 for January, NLI_02 for February, NLI_03 for March, etc.).
-
-```{r}
-
-```
-
 
 Use pivot_wider() to pivot the datasets.
 
 ```{r}
-
+# ??
 ```
 
 Use these datasets to create some line charts (geom_line)
 
-```{r}
+```{r line-charts}
+theme_set(theme_bw())
 
+# NL yearly data
+# Coding question: 
+# How do plot the evolution over time of a variable across all region?
+# Check use of facet_wrap
+ggplot(filter(data_tidy_YR, year <=2021), aes(x=year, y=nl_mean_4))+
+  geom_smooth(method = "lm") + facet_wrap(~name, scales = 'free_y') + 
+  ylab("Average Luminosity") +
+  geom_rect(data = subset(data_tidy_YR, name %in% c("Zakarpatska","Ivano-Frankivska","Lvivska","Ternopilska","Chernivetska")), 
+                          fill = NA, colour = "red", xmin = -Inf,xmax = Inf,
+            ymin = -Inf,ymax = Inf)
+
+ggplot(filter(data_tidy_YR, year <=2021, name %in% c("Zakarpatska","Ivano-Frankivska","Lvivska","Ternopilska","Chernivetska")), aes(x=year, y=nl_mean_4))+
+  geom_smooth(method = "lm", aes(color=name), show.legend = FALSE) + facet_wrap(~name, scales = 'free_y') + 
+  ylab("Average Luminosity") + 
+  geom_point(aes(color=name), show.legend = FALSE)
+
+## what would the title be? 
 ```
 
 
 bar charts (geom_bar)
 
 ```{r}
+
+
+# Coding question:
+# How do we produce a series of graphs over time?
+# How do we add simply OLS line to check the relationship between NL and GDP?
+# Check us of geom_smooth(method="lm"). What other methods are available? How about Loess
+# Scatter plots lights vs. GDP
+ggplot(filter(data_tidy_YR, year <=2020), aes(x=log(nl_mean_4), y=lng))+
+  geom_point() + geom_smooth(method="lm")+
+  facet_wrap(~year, scales = 'free')
+
+ggplot(filter(data_tidy_YR, year <=2020), aes(x=log(nl_mean_4), y=lng))+
+  geom_point() + geom_smooth(method="lm")+ 
+  geom_text(aes(label = name, color=name), check_overlap = TRUE)+
+  theme(legend.position="none")
+
+
 
 ```
 
