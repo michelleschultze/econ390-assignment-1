@@ -1,0 +1,609 @@
+---
+title: "Econ 390: Team Assignment #1 (solo try)"
+author: Michelle Schultze
+output: pdf_document
+date: "2023-02-07"
+---
+
+Load packages & import data
+
+```{r load-import, message=FALSE,warning=FALSE,results='hide'}
+
+options(repos="https://cran.rstudio.com") 
+
+packages<-c(
+  "tidyverse",
+  "broom",
+  "pls",
+  "haven",
+  "ggplot2",
+  "gridExtra",
+  "rstudioapi",
+  "colourvalues",
+  "viridis",
+  "RColorBrewer",
+  "tidyverse",
+  "ggrepel",
+  "maps",
+  "rgdal",
+  "maptools",
+  "sf",
+  "terra",
+  "plm",
+  "AER",
+  "stargazer",
+  "ISLR2",
+  "leaps",
+  "glmnet",
+  "tmap"
+)
+
+if(!require("pacman")) install.packages("pacman")
+
+pacman::p_load(packages, character.only = T)
+sapply(packages, require, character.only = TRUE)
+
+
+data_month <- read_csv("data/data_month_NL.csv")
+data_month$Date <- paste(data_month$year,data_month$month,"01", sep="-")
+data_month$Date <- as.Date(data_month$Date, format = "%Y-%m-%d")
+
+
+regGDP <- read_dta("data/Region by year GDP panel.dta")
+regGDP[regGDP$year == 2021, 3] <- NA 
+
+```
+
+Each team should mainly focus on their regions, but comparing with the country level (sum/average) is welcomed. 
+
+Assigned regions:
+
+UA_21	Zakarpatska	
+UA_26	Ivano-Frankivska	
+UA_46	Lvivska	
+UA_61	Ternopilska	
+UA_77	Chernivetska	
+
+
+```{r map, message=FALSE,warning=FALSE,results='hide'}
+
+
+download.file("https://geodata.ucdavis.edu/gadm/gadm4.1/shp/gadm41_UKR_shp.zip",destfile="data/ukraine_map.zip")
+
+system("unzip data/ukraine_map.zip")
+
+map_1 <- readOGR( 
+  dsn= paste0(getwd()) , 
+  layer="gadm41_UKR_1",
+  verbose=FALSE, stringsAsFactors = FALSE)
+
+map_1@data  <- map_1@data %>%
+  mutate(color = ifelse(NAME_1 %in% c("Zakarpattia","Ivano-Frankivs'k","L'viv","Ternopil'","Chernivtsi"), "lightgreen", "grey"))
+map_1@data  <- map_1@data %>%
+  mutate(name = ifelse(NAME_1 %in% c("Zakarpattia","Ivano-Frankivs'k","L'viv","Ternopil'","Chernivtsi"), NAME_1, NA))
+
+map.plot<-tm_shape(map_1)+
+  tm_fill(col="color")+
+  tm_borders()+
+  tm_text(text="name", size=0.8, auto.placement=T, remove.overlap = F, bg.color="white", bg.alpha=0.4)
+
+map.plot
+```
+
+Merge these datasets together using year and region. Use left_join to merge different datasets. As for data_month_NL.csv, which contains the monthly information, you can either generate annual variables from the monthly information or try to pivot the datasets to create 12 new variables for each variable you think useful (e.g. NLI_01 for January, NLI_02 for February, NLI_03 for March, etc.).
+
+```{r prep-data, message=FALSE,warning=FALSE,results='hide'}
+
+## code from class
+
+data_tidy_YR_test <- data_month %>% group_by(year, reg, name) %>% 
+  mutate(NLI = nl_sum_4/(area_sq_km - 0.141*nl_nodata_4),
+         NLI2 = nl_mean_4/nl_std_4)
+
+# remove LNR/DNR {careful with character string "UA_09_0" vs. "UA_14_O"} 
+# original data_month starts in 2010 (with many missing variables)
+data_tidy_YR_test <- filter(data_tidy_YR_test, year >= 2012, !(reg %in% c("UA_09_O", "UA_14_O")) ) 
+
+# arrange order of columns for easier viewing
+data_tidy_YR_test <- data_tidy_YR_test %>% 
+  select(c(year, month, reg, name, area_sq_km, NLI, NLI2, tw_count), everything())
+
+#tale logs
+data_tidy_YR_test <- data_tidy_YR_test %>% 
+  mutate(across(c(NLI:tw_n_settlements), ~log(.x), .names = '{.col}'))
+data_tidy_YR_test[data_tidy_YR_test == -Inf] <- 0
+
+# Estimation Portion 2012-2020 (2021 we have monthly levels)
+data_tidy_YR <- filter(data_tidy_YR_test, year < 2021) %>%
+  group_by(year, reg, name) %>%
+  summarise(across(c(NLI:tw_n_settlements), ~mean(.x, na.rm=TRUE), .names = '{.col}')) %>%
+  mutate(across(c(NLI:tw_n_settlements), ~round(.x, digits=3), .names = '{.col}'))
+
+# Add yearly levels of GDP
+data_tidy_YR <- left_join(data_tidy_YR, regGDP, by=c("year", "reg"))
+
+
+data_tidy_YR$GDP <- log(data_tidy_YR$GDP)
+colnames(data_tidy_YR)[25] <- "lng"
+
+
+```
+
+Use these datasets to create some line charts (geom_line)
+
+```{r line-charts, message=FALSE,warning=FALSE,results='hide'}
+
+luminocity.facet<-ggplot(filter(data_tidy_YR, year <=2021, name %in% c("Zakarpatska","Ivano-Frankivska","Lvivska","Ternopilska","Chernivetska")), aes(x=year, y=nl_mean_4))+
+  geom_smooth(method = "lm", aes(color=name), show.legend = FALSE, se=F) + facet_wrap(~name, scales = 'free_y') + 
+  ylab("Average Luminosity") + 
+  geom_point(aes(color=name), show.legend = FALSE) + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(title = "Mean Night Light Luminosity", subtitle = "Western Ukraine")+
+  scale_y_continuous(limits = c(0,2), n.breaks = 5)+
+  scale_colour_viridis_d("Oblast")+
+  theme_bw()
+
+luminocity.line<-ggplot(filter(data_tidy_YR, year <=2021, name %in% c("Zakarpatska","Ivano-Frankivska","Lvivska","Ternopilska","Chernivetska")), aes(x=year, y=nl_mean_4))+
+  ylab("Average Luminosity") + 
+  geom_line(aes(color=name), show.legend = T) + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(title = "Mean Night Light Luminosity", subtitle = "Western Ukraine",x="Year")+
+  scale_y_continuous(limits = c(0,2), n.breaks = 5)+
+  scale_color_viridis_d("Oblast")+
+  theme_bw()
+
+luminocity.animation<-ggplot(filter(data_tidy_YR, year <=2021, name %in% c("Zakarpatska","Ivano-Frankivska","Lvivska","Ternopilska","Chernivetska")), aes(x=year, y=nl_mean_4, frame=name))+
+  geom_smooth(method = "lm", aes(color=name), show.legend = FALSE, se=F) +
+  ylab("Average Luminosity") + 
+  geom_point(aes(color=name), show.legend = FALSE) + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(title = "Mean Night Light Luminosity", subtitle = "Western Ukraine")+
+  scale_y_continuous(limits = c(0,2), n.breaks = 5)+
+  scale_colour_viridis_d()+
+  theme_bw()+
+  theme(legend.position = "none")
+
+ggplotly(luminocity.facet,dynamicTicks=F)
+ggplotly(luminocity.line,dynamicTicks=T)
+
+luminocity.animation.plotly<-ggplotly(luminocity.animation)
+
+luminocity.animation.plotly <- luminocity.animation.plotly %>% 
+  animation_opts(
+    1000, easing = "elastic", redraw = FALSE
+  )
+
+luminocity.animation.plotly <- luminocity.animation.plotly %>% 
+  animation_button(visible=FALSE)
+
+luminocity.animation.plotly
+```
+
+
+
+```{r line-charts-2, message=FALSE,warning=FALSE,results='hide'}
+data_tidy_YR <- data_tidy_YR %>%
+  mutate(of_interest = ifelse(name %in% c("Zakarpatska","Ivano-Frankivska","Lvivska","Ternopilska","Chernivetska"), "Western Ukraine", "Rest of Ukraine"))
+
+
+# lower ratio of (log) luminosity to (log) GDP in Western Ukraine
+
+grp.subregion<-ggplot(data = filter(data_tidy_YR, year <=2020), aes(x=log(nl_mean_4), y=lng))+
+  geom_point(aes(color = of_interest)) + 
+  geom_smooth(aes(group=of_interest, color = of_interest),method="lm") +
+  labs(title="GRP and Mean luminocity by subregion", x="Log of mean luminocity", y="Log of GRP")+
+  scale_color_viridis_d("Subregion")+
+  theme_bw()
+
+
+# Western regions relative to each other: 
+
+grp.oblast<-ggplot(filter(data_tidy_YR, year <=2020, name %in% c("Zakarpatska","Ivano-Frankivska","Lvivska","Ternopilska","Chernivetska")), aes(x=log(nl_mean_4), y=lng))+
+  geom_point(aes(color=name)) + geom_smooth(aes(color=name, group=name),method="lm") + 
+  theme(legend.position="none")+
+  scale_color_viridis_d("Oblast")+
+  labs(title="GRP and Mean luminocity by Oblast", x="Log of mean luminocity", y="Log of GRP")+
+  theme_bw()
+
+ggplotly(grp.subregion,dynamicTicks=T)
+ggplotly(grp.oblast,dynamicTicks=T)
+```
+
+
+```{r line-graphs-3, message=FALSE,warning=FALSE,results='hide'}
+
+ggplot(data = filter(data_tidy_YR, year <=2020), aes(x=log(nl_mean_4), y=lng))+
+  geom_point(aes(color=of_interest)) + 
+  facet_wrap(~year, scales = 'free')+
+  scale_y_continuous(limits = c(7,12), n.breaks = 5)+
+  scale_colour_viridis_d("Subregion")+
+  labs(title="GRP and Mean luminocity by Subregion and Year", x="Log of mean luminocity", y="Log of GRP")+
+  theme_bw()
+
+#added animation instead of facet 
+grp.animation<-ggplot(data = filter(data_tidy_YR, year <=2020), aes(x=log(nl_mean_4), y=lng))+
+  geom_point(aes(color=of_interest, frame=year)) + 
+  scale_y_continuous(limits = c(7,12), n.breaks = 5)+
+  scale_colour_viridis_d("Subregion")+
+  labs(title="GRP and Mean luminocity by Subregion and Year", x="Log of mean luminocity", y="Log of GRP")+
+  theme_bw()
+
+grp.animation.plotly<-ggplotly(grp.animation)
+
+grp.animation.plotly <- grp.animation.plotly %>% 
+  animation_opts(
+    1000, easing = "elastic", redraw = FALSE
+  )
+
+grp.animation.plotly <- grp.animation.plotly %>% 
+  animation_button(visible=FALSE)
+
+grp.animation.plotly
+
+```
+
+
+
+
+bar charts (geom_bar)
+
+```{r}
+
+
+
+
+
+
+```
+
+
+pie charts (geom_bar + coord_polar())
+
+```{r}
+data_tidy_YR <- data_tidy_YR %>%
+  mutate(group_region = case_when(name %in% c("Zakarpatska", "Ivano-Frankivska", "Lvivska", "Ternopilska", "Chernivetska") ~ "1: SW Ukraine", 
+                                  name %in% c("Volynska","Zhytomyrska","Rivnenska","Khmelnytska") ~ "2: NW Ukraine", 
+                                  name %in% c("Odeska","Sevastopilska","Krym","Mykolaivska","Khersonska") ~ "3: South Ukraine",
+                                  name %in% c("Luhanska","Donetska","Zaporizka","Kharkivska") ~  "4: East Ukraine",
+                                  name %in% c("Kyivska City","Kyivska","Sumska","Chernihivska") ~ "5: Capital Region",
+                                  name %in% c("Dnipropetrovska","Kirovohradska","Poltavska","Cherkaska","Vinnytska") ~ "6: Central Ukraine",                                ) )
+
+
+luminocity.pie<-data_tidy_YR %>%
+  group_by(group_region) %>%
+  summarize(n = sum(nl_sum_4)) %>%
+  ggplot(aes(x="", y=n, fill=factor(group_region))) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y", start=0) + labs(title = "Mean Luminosity Between Region Groups", x = "", y = "", fill = "Group Region Assignment")
+
+luminocity.donut<-data_tidy_YR %>%
+  group_by(group_region) %>%
+  summarize(n = sum(nl_sum_4)) %>%
+  summarise(group_region, 
+            fraction = n/sum(n), 
+            ymax = cumsum (n/sum(n)), 
+            ymin = c(0,head(cumsum (n/sum(n)), n =-1)),
+            labelPosition = (cumsum (n/sum(n))+c(0,head(cumsum (n/sum(n)), n =-1)))/2,
+            label = paste0(group_region, "\n Luminocity: ", round(n,0))
+            ) %>%
+  ggplot(aes(ymax=ymax, ymin=ymin, xmax=4, xmin=3, fill=group_region)) +
+  geom_rect() +
+  geom_label( x=2.5, aes(y=labelPosition, label=label), size=2) +
+  coord_polar(theta="y") +
+  xlim(c(1, 4))+
+  scale_fill_viridis_d(begin=0.15)+
+  theme_void()+
+  theme(legend.position = "none")
+
+  
+luminocity.pie
+luminocity.donut
+```
+
+
+Use these datasets to fit fixed effect line models. Use plm function to run the fixed effect regression.
+
+```{r}
+
+########## GDP and Nightlights Panel Models #####
+# filtering oblasts with available GDP over entire period
+panel_data <- filter(data_tidy_YR, !(reg %in% c("UA_40", "UA_43")))
+
+
+### Unit FE Model
+NL_fe_mod <- plm(lng ~ NLI,
+                 data = panel_data,
+                 index = c("name", "year"),
+                 model = "within")
+summary(NL_fe_mod)
+coeftest(NL_fe_mod, vcov = vcovHC, type = "HC1")
+
+panel_data1 <- filter(panel_data, reg == "UA_21"| reg=="UA_26" | reg=="UA_46"| reg=="UA_61") 
+
+# Unit FE == OLS with dummies for Units
+NL_lm_mod <- lm(lng ~ NLI + name - 1, data = panel_data1)
+summary(NL_lm_mod)
+
+
+### Time and Unit FE
+NL_tefe_mod <- plm(lng ~ NLI,
+                   data = panel_data1,
+                   index = c("name", "year"),
+                   model = "within",
+                   effect = "twoways")
+summary(NL_tefe_mod)
+coeftest(NL_tefe_mod, vcov = vcovHC, type = "HC1")
+
+# Time and Unit FE == OLS with dummies for Units and Years
+NL_TU_lm_mod <- lm(lng ~ NLI + name + as.factor(year) - 1, data = panel_data1)
+summary(NL_TU_lm_mod)
+
+
+# Arranging results for presentation
+model_se <- list(sqrt(diag(vcovHC(NL_fe_mod, type = "HC1"))),
+                 sqrt(diag(vcovHC(NL_lm_mod, type = "HC1"))),
+                 sqrt(diag(vcovHC(NL_tefe_mod, type = "HC1"))),
+                 sqrt(diag(vcovHC(NL_TU_lm_mod, type = "HC1"))))
+```
+
+
+```{r}
+## how to make table come out fully formatted?
+
+# output latex table (type = "html" for HTML/CSS code)
+stargazer(NL_fe_mod, NL_lm_mod, NL_tefe_mod, NL_TU_lm_mod,
+          digits = 3,
+          header = FALSE,
+          type = "html",
+          se = model_se,
+          title = "Linear Panel Regression Models of GDP and Nightlights",
+          model.numbers = FALSE,
+          column.labels = c("(1)", "(2)", "(3)", "(4)"),
+          out = "table.htm")
+
+
+```
+
+
+Try to go through the model selection methods (Best Subset Selection - regsubsets, Ridge – glmnet alpha = 1, LASSO – glmnet alpha = 0) to find the best prediction model for GDP. Start with as many variables as you can get.
+
+```{r linear}
+
+## class code
+
+## couldn't figure out how to make regfit.full work, error: "Exhaustive search will be S L O W, must specify really.big=T"
+
+###
+dim(panel_data1)
+sum(is.na(panel_data1$lng))
+sum(is.na(panel_data1$nl_sum_4))
+###
+panel_data1_2 <- na.omit(panel_data1)
+dim(panel_data1_2)
+sum(is.na(panel_data1_2))
+###
+
+regfit.full <- regsubsets(lng ~ ., panel_data1_2, nvmax = 10)
+summary(regfit.full)
+reg.summary <- summary(regfit.full)
+###
+names(reg.summary)
+###
+reg.summary$rsq
+###
+par(mfrow = c(2, 2))
+plot(reg.summary$rss, xlab = "Number of Variables",
+     ylab = "RSS", type = "l")
+plot(reg.summary$adjr2, xlab = "Number of Variables",
+     ylab = "Adjusted RSq", type = "l")
+###
+which.max(reg.summary$adjr2)
+points(11, reg.summary$adjr2[11], col = "red", cex = 2, 
+       pch = 20)
+###
+plot(reg.summary$cp, xlab = "Number of Variables",
+     ylab = "Cp", type = "l")
+# 6 is the optimum
+
+which.min(reg.summary$cp)
+points(10, reg.summary$cp[10], col = "red", cex = 2,
+       pch = 20)
+which.min(reg.summary$bic)
+
+plot(reg.summary$bic, xlab = "Number of Variables",
+     ylab = "BIC", type = "l")
+points(6, reg.summary$bic[6], col = "red", cex = 2,
+       pch = 20)
+###
+plot(regfit.full, scale = "r2")
+plot(regfit.full, scale = "adjr2")
+plot(regfit.full, scale = "Cp")
+plot(regfit.full, scale = "bic")
+###
+coef(regfit.full, 6)
+
+### Forward and Backward Stepwise Selection
+
+###
+regfit.fwd <- regsubsets(lng ~ ., data = panel_data1_2,
+                         nvmax = 14, method = "forward")
+summary(regfit.fwd)
+regfit.bwd <- regsubsets(lng ~ ., data = panel_data1_2,
+                         nvmax = 14, method = "backward")
+summary(regfit.bwd)
+### For this data, the best one-variable through six-variable models are each identical for best subset and forward selection. 
+
+#checking the model which is the best (maybe not 7th)
+coef(regfit.full, 7)
+coef(regfit.fwd, 7)
+coef(regfit.bwd, 7)
+
+### Choosing Among Models Using the Validation-Set Approach and Cross-Validation
+
+###
+set.seed(1)
+train <- sample(c(TRUE, FALSE), nrow(panel_data1_2),
+                replace = TRUE)
+test <- (!train)
+###
+regfit.best <- regsubsets(lng ~ .,
+                          data = panel_data1_2[train, ], nvmax = 19)
+###
+test.mat <- model.matrix(lng ~ .,
+                          data = panel_data1_2[test, ])
+###
+val.errors <- rep(NA, 14)
+for (i in 1:14) {
+  coefi <- coef(regfit.best, id = i)
+  pred <- test.mat[, names(coefi)] %*% coefi
+  val.errors[i] <- mean((panel_data1_2$lng[test] - pred)^2)
+}
+###
+val.errors
+which.min(val.errors)
+coef(regfit.best, 13)
+###
+predict.regsubsets <- function(object, newdata, id, ...) {
+  form <- as.formula(object$call[[2]])
+  mat <- model.matrix(form, newdata)
+  coefi <- coef(object, id = id)
+  xvars <- names(coefi)
+  mat[, xvars] %*% coefi
+}
+###
+regfit.best <- regsubsets(lng ~ ., data = panel_data1_2,
+                          nvmax = 19)
+coef(regfit.best, 7)
+###
+k <- 10
+n <- nrow(panel_data1_2)
+set.seed(1)
+folds <- sample(rep(1:k, length = n))
+cv.errors <- matrix(NA, k, 19,
+                    dimnames = list(NULL, paste(1:19)))
+###
+for (j in 1:k) {
+  best.fit <- regsubsets(lng ~ .,
+                         data = panel_data1_2[folds != j, ],
+                         nvmax = 19)
+  for (i in 1:19) {
+    pred <- predict(best.fit, panel_data1_2[folds == j, ], id = i)
+    cv.errors[j, i] <-
+      mean((panel_data1_2$lng[folds == j] - pred)^2)
+  }
+}
+###
+mean.cv.errors <- apply(cv.errors, 2, mean)
+mean.cv.errors
+par(mfrow = c(1, 1))
+plot(mean.cv.errors, type = "b")
+###
+reg.best <- regsubsets(lng ~ ., data = panel_data1_2,
+                       nvmax = 14)
+coef(reg.best, 10)
+
+## Ridge Regression and the Lasso
+
+###
+x <- model.matrix(lng ~ ., panel_data1_2)[, -1]
+y <- panel_data1_2$lng
+
+
+```
+
+```{r}
+## Ridge Regression and the Lasso
+
+###
+x <- model.matrix(lng ~ ., panel_data1_2)[, -1]
+y <- panel_data1_2$lng
+
+### Ridge Regression
+
+###
+
+grid <- 10^seq(10, -2, length = 100)
+ridge.mod <- glmnet(x, y, alpha = 0, lambda = grid)
+###
+dim(coef(ridge.mod))
+###
+ridge.mod$lambda[50]
+coef(ridge.mod)[, 50]
+sqrt(sum(coef(ridge.mod)[-1, 50]^2))
+###
+ridge.mod$lambda[60]
+coef(ridge.mod)[, 60]
+sqrt(sum(coef(ridge.mod)[-1, 60]^2))
+###
+predict(ridge.mod, s = 50, type = "coefficients")[1:20, ]
+###
+set.seed(1)
+train <- sample(1:nrow(x), nrow(x) / 2)
+test <- (-train)
+y.test <- y[test]
+###
+ridge.mod <- glmnet(x[train, ], y[train], alpha = 0,
+                    lambda = grid, thresh = 1e-12)
+ridge.pred <- predict(ridge.mod, s = 4, newx = x[test, ])
+mean((ridge.pred - y.test)^2)
+###
+mean((mean(y[train]) - y.test)^2)
+###
+ridge.pred <- predict(ridge.mod, s = 1e10, newx = x[test, ])
+mean((ridge.pred - y.test)^2)
+###
+ridge.pred <- predict(ridge.mod, s = 0, newx = x[test, ],
+                      exact = T, x = x[train, ], y = y[train])
+mean((ridge.pred - y.test)^2)
+lm(y ~ x, subset = train)
+predict(ridge.mod, s = 0, exact = T, type = "coefficients",
+        x = x[train, ], y = y[train])[1:20, ]
+###
+set.seed(1)
+cv.out <- cv.glmnet(x[train, ], y[train], alpha = 0)
+plot(cv.out)
+bestlam <- cv.out$lambda.min
+bestlam
+###
+ridge.pred <- predict(ridge.mod, s = bestlam,
+                      newx = x[test, ])
+mean((ridge.pred - y.test)^2)
+###
+out <- glmnet(x, y, alpha = 0)
+predict(out, type = "coefficients", s = bestlam)[1:20, ]
+
+
+## what are these numbers describing, what would be useful to look at here? 
+## should we highlight and discuss the coefficients for our regions of interest? 
+
+
+
+
+### The Lasso
+
+###
+lasso.mod <- glmnet(x[train, ], y[train], alpha = 1,
+                    lambda = grid)
+plot(lasso.mod)
+###
+set.seed(1)
+cv.out <- cv.glmnet(x[train, ], y[train], alpha = 1)
+plot(cv.out)
+bestlam <- cv.out$lambda.min
+lasso.pred <- predict(lasso.mod, s = bestlam,
+                      newx = x[test, ])
+mean((lasso.pred - y.test)^2)
+###
+out <- glmnet(x, y, alpha = 1, lambda = grid)
+lasso.coef <- predict(out, type = "coefficients",
+                      s = bestlam)[1:20, ]
+lasso.coef
+lasso.coef[lasso.coef != 0]
+
+
+
+## same questions here
+
+```
+
+
